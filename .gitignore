@@ -18,3 +18,9 @@ models/*.pkl
 
 # Model binaries
 models/*.pkl
+
+# DVC temporary state
+.dvc/tmp/
+
+# Model binaries
+models/*.pkl
