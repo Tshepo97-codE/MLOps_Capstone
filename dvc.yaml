@@ -1,0 +1,77 @@
+stages:
+
+  prepare:
+    cmd: venv/bin/python -m payshap_ml.pipelines.data_ingestion --params params.yaml
+    deps:
+      - src/payshap_ml/pipelines/data_ingestion.py
+      - data/raw/transactions.parquet
+    params:
+      - base.seed
+      - data
+    outs:
+      - data/interim/cleaned.parquet
+
+  featurize:
+    cmd: venv/bin/python -m payshap_ml.pipelines.feature_engineering --params params.yaml
+    deps:
+      - src/payshap_ml/pipelines/feature_engineering.py
+      - data/interim/cleaned.parquet
+    params:
+      - base.seed
+      - features
+      - split
+    outs:
+      - data/processed/train.parquet
+      - data/processed/test.parquet
+
+  train:
+    cmd: venv/bin/python -m payshap_ml.pipelines.train --params params.yaml
+    deps:
+      - src/payshap_ml/pipelines/train.py
+      - data/processed/train.parquet
+    params:
+      - base.seed
+      - model
+      - training
+    outs:
+      - models/model.pkl
+      - models/feature_names.json
+    metrics:
+      - reports/train_metrics.json:
+          cache: false
+
+  evaluate:
+    cmd: venv/bin/python -m payshap_ml.pipelines.evaluate --params params.yaml
+    deps:
+      - src/payshap_ml/pipelines/evaluate.py
+      - models/model.pkl
+      - data/processed/test.parquet
+    params:
+      - evaluation
+    metrics:
+      - reports/eval_metrics.json:
+          cache: false
+    plots:
+      - reports/pr_curve.csv:
+          x: recall
+          y: precision
+      - reports/roc_curve.csv:
+          x: fpr
+          y: tpr
+
+  benchmark:
+    cmd: venv/bin/python scripts/run_benchmark_stage.py --params params.yaml
+    deps:
+      - src/payshap_ml/benchmarks/latency.py
+      - scripts/run_benchmark_stage.py
+      - app/main.py
+      - app/schemas.py
+      - models/model.pkl
+      - models/feature_names.json
+    params:
+      - benchmark
+    outs:
+      - reports/latency/latency_results.json:
+          cache: false
+      - reports/latency/latency_results.csv:
+          cache: false

@@ -1,0 +1,188 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: venv/bin/python -m payshap_ml.pipelines.data_ingestion --params 
+      params.yaml
+    deps:
+    - path: data/raw/transactions.parquet
+      hash: md5
+      md5: 5b75a321502693a0bf0b5ad4dca29a2e
+      size: 1342184
+    - path: src/payshap_ml/pipelines/data_ingestion.py
+      hash: md5
+      md5: 4818f6d980ca05a92164f1b5a402f677
+      size: 3322
+    params:
+      params.yaml:
+        base.seed: 42
+        data:
+          raw_path: data/raw/transactions.parquet
+          interim_path: data/interim/cleaned.parquet
+          processed_train_path: data/processed/train.parquet
+          processed_test_path: data/processed/test.parquet
+          target_column: is_fraud
+          test_size: 0.2
+          val_size: 0.1
+          stratify: true
+    outs:
+    - path: data/interim/cleaned.parquet
+      hash: md5
+      md5: 125aa8f61ab4651272bedd238dd1d8fa
+      size: 1342183
+  featurize:
+    cmd: venv/bin/python -m payshap_ml.pipelines.feature_engineering --params 
+      params.yaml
+    deps:
+    - path: data/interim/cleaned.parquet
+      hash: md5
+      md5: 125aa8f61ab4651272bedd238dd1d8fa
+      size: 1342183
+    - path: src/payshap_ml/pipelines/feature_engineering.py
+      hash: md5
+      md5: bc4522c7a562b8e81b75792ae7c7e83b
+      size: 8528
+    params:
+      params.yaml:
+        base.seed: 42
+        features:
+          scaling_method: standard
+          categorical_encoding: target
+          velocity:
+            windows_minutes:
+            - 5
+            - 15
+            - 60
+            - 1440
+            max_lookback_days: 30
+          time_delta:
+            unit: seconds
+          amount_ratio:
+            historical_window_days: 90
+            min_history_transactions: 3
+          hourly_frequency:
+            bucket_size_minutes: 60
+          iso20022_fields:
+          - clearing_system_property
+          - proxy_type
+          - debtor_agent_bic
+          - creditor_agent_bic
+          - purpose_code
+          - charge_bearer
+        split:
+          method: time_based
+          time_column: timestamp
+    outs:
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 62d75474902a3e04ca62530abdbebd8d
+      size: 553094
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: 8b93d06fef07e4ea9886033c2f3fda4e
+      size: 1993202
+  train:
+    cmd: venv/bin/python -m payshap_ml.pipelines.train --params params.yaml
+    deps:
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: 8b93d06fef07e4ea9886033c2f3fda4e
+      size: 1993202
+    - path: src/payshap_ml/pipelines/train.py
+      hash: md5
+      md5: 294d81e810c1f3dbbc2c6001761ce314
+      size: 10366
+    params:
+      params.yaml:
+        base.seed: 42
+        model:
+          algorithm: lightgbm
+          imbalance_strategy: scale_pos_weight
+          lightgbm:
+            objective: binary
+            boosting_type: gbdt
+            learning_rate: 0.05
+            n_estimators: 600
+            max_depth: 7
+            num_leaves: 63
+            min_child_samples: 40
+            subsample: 0.8
+            colsample_bytree: 0.8
+            scale_pos_weight: 999
+            reg_alpha: 0.1
+            reg_lambda: 0.1
+            early_stopping_rounds: 50
+          xgboost:
+            objective: binary:logistic
+            eval_metric: aucpr
+            learning_rate: 0.05
+            n_estimators: 600
+            max_depth: 6
+            subsample: 0.8
+            colsample_bytree: 0.8
+            scale_pos_weight: 999
+            reg_alpha: 0.1
+            reg_lambda: 1.0
+            early_stopping_rounds: 50
+          smote:
+            sampling_strategy: 0.01
+            k_neighbors: 5
+        training:
+          cv_folds: 5
+          registry_threshold_pr_auc: 0.55
+          mlflow:
+            tracking_uri: http://localhost:5000
+            experiment_name: payshap-fraud-detection
+            registered_model_name: PayShap_Fraud_Detector
+    outs:
+    - path: models/feature_names.json
+      hash: md5
+      md5: 35271fb34954279921a3933fb76f43aa
+      size: 331
+    - path: models/model.pkl
+      hash: md5
+      md5: 04104b2753b8cad785d9dc466c7639af
+      size: 10484
+    - path: reports/train_metrics.json
+      hash: md5
+      md5: 8db39cc2543a5781552c5e8c156fe546
+      size: 168
+  evaluate:
+    cmd: venv/bin/python -m payshap_ml.pipelines.evaluate --params params.yaml
+    deps:
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 62d75474902a3e04ca62530abdbebd8d
+      size: 553094
+    - path: models/model.pkl
+      hash: md5
+      md5: 04104b2753b8cad785d9dc466c7639af
+      size: 10484
+    - path: src/payshap_ml/pipelines/evaluate.py
+      hash: md5
+      md5: 38ac09d4b7a2918873b91c852ab723c3
+      size: 3857
+    params:
+      params.yaml:
+        evaluation:
+          metrics:
+          - pr_auc
+          - roc_auc
+          - f1
+          - precision
+          - recall
+          - latency_ms
+          decision_threshold: 0.5
+          latency_sample_size: 1000
+    outs:
+    - path: reports/eval_metrics.json
+      hash: md5
+      md5: a09a1f49976dc9b7cd40998d0481d339
+      size: 225
+    - path: reports/pr_curve.csv
+      hash: md5
+      md5: b444c035a8292f8738774e27b45e1f2b
+      size: 1200
+    - path: reports/roc_curve.csv
+      hash: md5
+      md5: e4b9f56553ec72acfb8cce1b14c7f723
+      size: 1166

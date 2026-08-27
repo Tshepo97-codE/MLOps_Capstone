@@ -1,0 +1,106 @@
+# =============================================================================
+# params.yaml — single source of truth for pipeline parameters (DVC-tracked)
+# =============================================================================
+
+base:
+  seed: 42
+  log_level: INFO
+
+data:
+  raw_path: data/raw/transactions.parquet
+  interim_path: data/interim/cleaned.parquet
+  processed_train_path: data/processed/train.parquet
+  processed_test_path: data/processed/test.parquet
+  target_column: is_fraud
+  test_size: 0.2
+  val_size: 0.1
+  stratify: true
+
+features:
+  # ISO 20022 pacs.008 derived + PayShap-specific behavioural features
+  scaling_method: standard        # standard | minmax | robust | none
+  categorical_encoding: target    # target | onehot | ordinal
+  velocity:
+    windows_minutes: [5, 15, 60, 1440]   # ShapID velocity windows
+    max_lookback_days: 30
+  time_delta:
+    unit: seconds
+  amount_ratio:
+    historical_window_days: 90
+    min_history_transactions: 3
+  hourly_frequency:
+    bucket_size_minutes: 60
+  iso20022_fields:
+    - clearing_system_property
+    - proxy_type
+    - debtor_agent_bic
+    - creditor_agent_bic
+    - purpose_code
+    - charge_bearer
+
+split:
+  method: time_based   # time_based avoids leakage across the fraud-label horizon
+  time_column: timestamp
+
+model:
+  algorithm: lightgbm   # lightgbm | xgboost
+  imbalance_strategy: scale_pos_weight   # scale_pos_weight | smote
+  lightgbm:
+    objective: binary
+    boosting_type: gbdt
+    learning_rate: 0.05
+    n_estimators: 600
+    max_depth: 7
+    num_leaves: 63
+    min_child_samples: 40
+    subsample: 0.8
+    colsample_bytree: 0.8
+    scale_pos_weight: 999   # ~0.1% positive class -> ~1:999 imbalance
+    reg_alpha: 0.1
+    reg_lambda: 0.1
+    early_stopping_rounds: 50
+  xgboost:
+    objective: binary:logistic
+    eval_metric: aucpr
+    learning_rate: 0.05
+    n_estimators: 600
+    max_depth: 6
+    subsample: 0.8
+    colsample_bytree: 0.8
+    scale_pos_weight: 999
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+    early_stopping_rounds: 50
+  smote:
+    sampling_strategy: 0.01
+    k_neighbors: 5
+
+training:
+  cv_folds: 5
+  registry_threshold_pr_auc: 0.55   # min PR-AUC to auto-register to Staging
+  mlflow:
+    tracking_uri: http://localhost:5000
+    experiment_name: payshap-fraud-detection
+    registered_model_name: PayShap_Fraud_Detector
+
+evaluation:
+  metrics: [pr_auc, roc_auc, f1, precision, recall, latency_ms]
+  decision_threshold: 0.5
+  latency_sample_size: 1000
+
+# =============================================================================
+# Latency benchmark profile (used by src/payshap_ml/benchmarks/latency.py)
+# =============================================================================
+benchmark:
+  target_url: http://localhost:8000/predict
+  target_rps: 100          # fixed send-rate to sustain during measured phase
+  concurrency: 20           # concurrent in-flight requests
+  warmup_runs: 200          # untimed requests to prime caches/JIT/connections
+  measured_runs: 2000       # timed requests used for percentile calculations
+  timeout_ms: 500           # per-request client timeout
+  budgets:
+    p95_latency_ms: 50      # end-to-end real-time budget per spec
+    max_error_rate: 0.01    # fail benchmark above 1% errors
+  output:
+    json_path: reports/latency/latency_results.json
+    csv_path: reports/latency/latency_results.csv

@@ -1,0 +1,249 @@
+Metadata-Version: 2.4
+Name: payshap-ml
+Version: 0.1.0
+Summary: Real-time fraud detection ML pipeline for PayShap (ISO 20022 pacs.008) instant credit transfers.
+Author: Fraud ML Platform Team
+License: Proprietary
+Requires-Python: <3.13,>=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pandas<3.0,>=2.1
+Requires-Dist: numpy<2.0,>=1.26
+Requires-Dist: scikit-learn<1.6,>=1.4
+Requires-Dist: lightgbm<5.0,>=4.3
+Requires-Dist: xgboost<3.0,>=2.0
+Requires-Dist: imbalanced-learn<0.13,>=0.12
+Requires-Dist: mlflow<3.0,>=2.13
+Requires-Dist: dvc[s3]<4.0,>=3.50
+Requires-Dist: pyyaml<7.0,>=6.0
+Requires-Dist: fastapi<0.115,>=0.110
+Requires-Dist: uvicorn[standard]<0.31,>=0.29
+Requires-Dist: pydantic<3.0,>=2.6
+Requires-Dist: python-dotenv<2.0,>=1.0
+Requires-Dist: psutil<6.0,>=5.9
+Requires-Dist: httpx<0.28,>=0.27
+Requires-Dist: structlog<25.0,>=24.1
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=8.0; extra == "dev"
+Requires-Dist: pytest-cov<6.0,>=5.0; extra == "dev"
+Requires-Dist: pytest-asyncio<0.24,>=0.23; extra == "dev"
+Requires-Dist: black<25.0,>=24.3; extra == "dev"
+Requires-Dist: ruff<0.5,>=0.4; extra == "dev"
+Requires-Dist: mypy<2.0,>=1.9; extra == "dev"
+
+# PayShap Real-Time Fraud Detection — ML Pipeline
+
+Reproducible, tracked ML pipeline for classifying PayShap instant credit
+transfers (ISO 20022 `pacs.008` messaging) as fraudulent or benign, under a
+real-time serving budget of **<50ms end-to-end**.
+
+## Repository layout
+
+```
+.
+├── app/                        # FastAPI real-time scoring service
+│   ├── main.py                 # lifespan model loading, /predict, /health
+│   └── schemas.py               # PayShapTransactionRequest/Response contracts
+├── src/payshap_ml/
+│   ├── pipelines/
+│   │   ├── data_ingestion.py    # Stage 1: raw -> cleaned
+│   │   ├── feature_engineering.py  # Stage 2: PayShap/ISO 20022 features
+│   │   ├── train.py             # Stage 3: MLflow-tracked training + registry
+│   │   └── evaluate.py          # Stage 4: held-out metrics + curves
+│   ├── benchmarks/
+│   │   └── latency.py           # HTTP latency benchmark harness
+│   └── utils/                   # shared config/logging helpers
+├── tests/                       # pytest suite (unit + benchmark smoke tests)
+├── data/{raw,interim,processed}/  # DVC-tracked data (gitignored contents)
+├── models/                      # DVC-tracked model artifacts
+├── reports/                     # metrics, curves, latency results
+├── dvc.yaml / params.yaml       # pipeline DAG + single source of config truth
+├── Makefile                     # developer automation
+└── pyproject.toml               # installable `payshap-ml` package
+```
+
+## Quickstart
+
+```bash
+make setup                 # create venv, install payshap-ml + dev deps
+source .venv/bin/activate
+make dvc-init               # initialize DVC + local storage remote (dev default)
+# place a raw dataset at data/raw/transactions.parquet, matching the schema
+# in src/payshap_ml/pipelines/data_ingestion.py::REQUIRED_COLUMNS
+make reproduce               # dvc repro: prepare -> featurize -> train -> evaluate
+make ml-ui                   # http://localhost:5000 — inspect runs & registered models
+make serve                   # http://localhost:8000 — real-time scoring API
+make test                    # pytest suite
+make benchmark               # /predict latency benchmark (needs `make serve` running)
+```
+
+## Windows compatibility
+
+The `Makefile` targets above assume a POSIX shell (`bin/` venv paths,
+`find`, `rm -rf`). Two options on Windows:
+
+**Recommended: WSL2.** Run this repo inside a WSL2 Ubuntu terminal and use
+the Makefile exactly as documented above — DVC, MLflow, and the shell
+utilities the Makefile relies on (`find`, `rm -rf`) are far better supported
+and tested there than on native Windows.
+
+**Native PowerShell alternative.** If you'd rather not use WSL2, the
+Makefile also ships `-win` target variants using Windows-style paths
+(`venv\Scripts\...`) that you can run with a Windows `make` install (e.g.
+via `choco install make` / `scoop install make`), or just copy-paste
+directly into PowerShell:
+
+```powershell
+# setup-win
+python -m venv venv
+.\venv\Scripts\activate
+pip install -e ".[dev]"
+
+# serve-win
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Equivalent `make ...-win` targets exist for `dvc-init`, `reproduce`,
+`ml-ui`, `test`, and `benchmark` — see the "Windows (native PowerShell)
+alternatives" section at the bottom of the `Makefile`. Note that DVC's S3
+remote support and some MLflow file-locking behavior are less battle-tested
+on native Windows, so if you hit issues there, WSL2 is the more reliable
+path.
+
+## Pipeline stages (`dvc.yaml`)
+
+| Stage | Script | Output |
+|---|---|---|
+| `prepare` | `pipelines/data_ingestion.py` | `data/interim/cleaned.parquet` |
+| `featurize` | `pipelines/feature_engineering.py` | `data/processed/{train,test}.parquet` |
+| `train` | `pipelines/train.py` | `models/model.pkl`, MLflow run + registry entry |
+| `evaluate` | `pipelines/evaluate.py` | `reports/eval_metrics.json`, PR/ROC curves |
+| `benchmark` | `benchmarks/latency.py` | `reports/latency/latency_results.{json,csv}` |
+
+Change any parameter in `params.yaml` and `dvc repro` will only re-run the
+stages that depend on it.
+
+## Feature engineering
+
+PayShap/ISO 20022-specific features computed in `feature_engineering.py`,
+all computed **causally** (no future information) to avoid label leakage:
+
+- **ShapID velocity** — rolling count of a debtor's transfers in 5/15/60/1440
+  minute windows.
+- **Hourly transaction frequency** — cumulative count within the debtor's
+  current hour-of-day bucket.
+- **Time-delta** — seconds since the debtor's previous outgoing transfer.
+- **Amount ratio to historical mean** — current amount vs. the debtor's
+  trailing mean transfer amount.
+- **ISO 20022 message attributes** — clearing system property, proxy type,
+  agent BICs, purpose code, charge bearer (categorically encoded).
+
+## Class imbalance
+
+Fraud labels are assumed to be extremely rare (~0.1% positive). `train.py`
+supports two strategies, selected via `model.imbalance_strategy` in
+`params.yaml`:
+
+- `scale_pos_weight` (default) — cost-sensitive learning built into
+  LightGBM/XGBoost.
+- `smote` — oversampling applied only to the training fold (never to
+  validation/test) via `imbalanced-learn`.
+
+## MLflow tracking & registry
+
+Every training run logs: all `model.*` params, PR-AUC/ROC-AUC/precision/
+recall/F1, a single-row latency sample, feature importances, and the fitted
+model with an explicit `ModelSignature` + input example for inference-time
+schema validation. Runs clearing `training.registry_threshold_pr_auc` are
+registered to `models:/PayShap_Fraud_Detector/Staging`.
+
+## Real-time serving (`app/main.py`)
+
+- Loads the model from the MLflow Registry (`MODEL_STAGE`, default
+  `Staging`) at startup via a `lifespan` context manager, falling back to
+  the local `models/model.pkl` artifact if no MLflow server is reachable.
+- `POST /predict` returns a fraud score and sets an `X-Inference-Time-MS`
+  response header measuring in-process scoring time.
+- **Known scaffold limitation**: `build_feature_row()` in `app/main.py`
+  currently uses placeholder defaults for velocity/time-delta/amount-ratio
+  features, since those require a low-latency online feature store keyed
+  on `debtor_shap_id` (e.g. Redis) that is out of scope for this scaffold.
+  Wire in a real feature-store lookup there before relying on this for
+  actual fraud decisions — see the `TODO(feature-store)` comment.
+
+## Latency benchmark harness
+
+`src/payshap_ml/benchmarks/latency.py` load-tests the live `/predict`
+endpoint with realistic synthetic PayShap payloads (varying amounts, proxy
+IDs, timestamps — not empty/static JSON), and reports p50/p95/p99/avg
+latency, throughput, error rate, and process RSS memory before/after.
+
+**No benchmark numbers are hardcoded anywhere in this repository.** Every
+figure in `reports/latency/latency_results.{json,csv}` comes from actually
+executing HTTP requests against a running `/predict` endpoint at the time
+`make benchmark` (or `dvc repro`'s `benchmark` stage) is run.
+
+⚠️ **Latency results are environment-dependent.** Numbers from a laptop, a
+CI runner, or a shared dev box are not representative of production and
+must not be used for a go/no-go call on the <50ms budget. Always rerun this
+harness on the actual target deployment hardware/network before trusting
+its pass/fail verdict for a release decision.
+
+Configuration lives under `benchmark:` in `params.yaml`:
+
+```yaml
+benchmark:
+  target_rps: 100
+  concurrency: 20
+  warmup_runs: 200
+  measured_runs: 2000
+  timeout_ms: 500
+  budgets:
+    p95_latency_ms: 50
+    max_error_rate: 0.01
+```
+
+The harness exits non-zero if the p95 budget or error-rate budget is
+breached, so it can gate a CI job:
+
+```yaml
+# example CI step
+- run: make serve &
+- run: sleep 3 && make benchmark
+```
+
+### Running via `dvc repro`
+
+`dvc.yaml`'s `deps:` list only drives cache invalidation — it does not
+launch a server. Running the `benchmark` stage's HTTP client against a
+port with nothing listening produces `error_rate=1.0000`, indistinguishable
+from a real production outage. To make `dvc repro` self-contained, the
+`benchmark` stage instead calls `scripts/run_benchmark_stage.py`, which:
+
+1. launches `uvicorn app.main:app` as a subprocess,
+2. polls `/health` until it's ready (or times out after 30s),
+3. runs the benchmark harness,
+4. tears the server down (success or failure) and propagates the exit code.
+
+If you're iterating manually and want to watch server logs or keep it warm
+between runs, use the two-terminal flow instead:
+
+```bash
+make serve            # terminal 1 — leave running
+make benchmark          # terminal 2 — repeat as needed
+```
+
+`make benchmark-standalone` runs the same self-contained
+start/wait/benchmark/teardown flow `dvc repro` uses, if you want it outside
+of DVC.
+
+## Testing
+
+```bash
+make test
+```
+
+Covers: data-cleaning edge cases (dedup, nulls, non-positive amounts),
+feature engineering correctness (causal velocity/time-delta/ratio logic,
+chronological split), and the benchmark harness (synthetic payload shape,
+percentile math, report serialization, and an end-to-end smoke test
+against a real in-process FastAPI server).

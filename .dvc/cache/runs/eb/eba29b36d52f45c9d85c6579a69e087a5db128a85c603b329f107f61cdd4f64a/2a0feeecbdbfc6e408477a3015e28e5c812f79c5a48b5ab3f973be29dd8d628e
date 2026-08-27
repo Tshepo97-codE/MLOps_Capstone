@@ -1,0 +1,27 @@
+cmd: venv/bin/python -m payshap_ml.pipelines.data_ingestion --params params.yaml
+deps:
+- path: data/raw/transactions.parquet
+  hash: md5
+  md5: 5b75a321502693a0bf0b5ad4dca29a2e
+  size: 1342184
+- path: src/payshap_ml/pipelines/data_ingestion.py
+  hash: md5
+  md5: 4818f6d980ca05a92164f1b5a402f677
+  size: 3322
+params:
+  params.yaml:
+    base.seed: 42
+    data:
+      raw_path: data/raw/transactions.parquet
+      interim_path: data/interim/cleaned.parquet
+      processed_train_path: data/processed/train.parquet
+      processed_test_path: data/processed/test.parquet
+      target_column: is_fraud
+      test_size: 0.2
+      val_size: 0.1
+      stratify: true
+outs:
+- path: data/interim/cleaned.parquet
+  hash: md5
+  md5: 125aa8f61ab4651272bedd238dd1d8fa
+  size: 1342183

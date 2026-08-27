@@ -1,0 +1,65 @@
+cmd: venv/bin/python -m payshap_ml.pipelines.train --params params.yaml
+deps:
+- path: data/processed/train.parquet
+  hash: md5
+  md5: 8b93d06fef07e4ea9886033c2f3fda4e
+  size: 1993202
+- path: src/payshap_ml/pipelines/train.py
+  hash: md5
+  md5: 294d81e810c1f3dbbc2c6001761ce314
+  size: 10366
+params:
+  params.yaml:
+    base.seed: 42
+    model:
+      algorithm: lightgbm
+      imbalance_strategy: scale_pos_weight
+      lightgbm:
+        objective: binary
+        boosting_type: gbdt
+        learning_rate: 0.05
+        n_estimators: 600
+        max_depth: 7
+        num_leaves: 63
+        min_child_samples: 40
+        subsample: 0.8
+        colsample_bytree: 0.8
+        scale_pos_weight: 999
+        reg_alpha: 0.1
+        reg_lambda: 0.1
+        early_stopping_rounds: 50
+      xgboost:
+        objective: binary:logistic
+        eval_metric: aucpr
+        learning_rate: 0.05
+        n_estimators: 600
+        max_depth: 6
+        subsample: 0.8
+        colsample_bytree: 0.8
+        scale_pos_weight: 999
+        reg_alpha: 0.1
+        reg_lambda: 1.0
+        early_stopping_rounds: 50
+      smote:
+        sampling_strategy: 0.01
+        k_neighbors: 5
+    training:
+      cv_folds: 5
+      registry_threshold_pr_auc: 0.55
+      mlflow:
+        tracking_uri: http://localhost:5000
+        experiment_name: payshap-fraud-detection
+        registered_model_name: PayShap_Fraud_Detector
+outs:
+- path: models/feature_names.json
+  hash: md5
+  md5: 35271fb34954279921a3933fb76f43aa
+  size: 331
+- path: models/model.pkl
+  hash: md5
+  md5: 04104b2753b8cad785d9dc466c7639af
+  size: 10484
+- path: reports/train_metrics.json
+  hash: md5
+  md5: 8db39cc2543a5781552c5e8c156fe546
+  size: 168

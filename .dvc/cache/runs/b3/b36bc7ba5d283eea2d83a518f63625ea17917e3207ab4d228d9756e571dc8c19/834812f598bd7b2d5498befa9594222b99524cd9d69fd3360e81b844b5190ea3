@@ -1,0 +1,39 @@
+cmd: venv/bin/python -m payshap_ml.pipelines.evaluate --params params.yaml
+deps:
+- path: data/processed/test.parquet
+  hash: md5
+  md5: 62d75474902a3e04ca62530abdbebd8d
+  size: 553094
+- path: models/model.pkl
+  hash: md5
+  md5: 04104b2753b8cad785d9dc466c7639af
+  size: 10484
+- path: src/payshap_ml/pipelines/evaluate.py
+  hash: md5
+  md5: 38ac09d4b7a2918873b91c852ab723c3
+  size: 3857
+params:
+  params.yaml:
+    evaluation:
+      metrics:
+      - pr_auc
+      - roc_auc
+      - f1
+      - precision
+      - recall
+      - latency_ms
+      decision_threshold: 0.5
+      latency_sample_size: 1000
+outs:
+- path: reports/eval_metrics.json
+  hash: md5
+  md5: a09a1f49976dc9b7cd40998d0481d339
+  size: 225
+- path: reports/pr_curve.csv
+  hash: md5
+  md5: b444c035a8292f8738774e27b45e1f2b
+  size: 1200
+- path: reports/roc_curve.csv
+  hash: md5
+  md5: e4b9f56553ec72acfb8cce1b14c7f723
+  size: 1166
