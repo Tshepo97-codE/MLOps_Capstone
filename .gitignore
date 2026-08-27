@@ -30,3 +30,9 @@ models/*.pkl
 
 # Model binaries
 models/*.pkl
+
+# DVC internal state
+.dvc/tmp/
+
+# Model binaries
+models/*.pkl
