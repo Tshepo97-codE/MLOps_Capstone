@@ -186,3 +186,54 @@ stages:
       hash: md5
       md5: e4b9f56553ec72acfb8cce1b14c7f723
       size: 1166
+  benchmark:
+    cmd: venv/bin/python scripts/run_benchmark_stage.py --params params.yaml
+    deps:
+    - path: app/main.py
+      hash: md5
+      md5: 3d29c2e2ae9b0a94fcf2258a6106303b
+      size: 7966
+    - path: app/schemas.py
+      hash: md5
+      md5: 04eec20905ff9ff349b169e3a24c3d20
+      size: 3021
+    - path: models/feature_names.json
+      hash: md5
+      md5: 35271fb34954279921a3933fb76f43aa
+      size: 331
+    - path: models/model.pkl
+      hash: md5
+      md5: 04104b2753b8cad785d9dc466c7639af
+      size: 10484
+    - path: scripts/run_benchmark_stage.py
+      hash: md5
+      md5: 7dcd0c1f67cc9e37f7ca0a834d6b3ab5
+      size: 5164
+    - path: src/payshap_ml/benchmarks/latency.py
+      hash: md5
+      md5: ed07a20536af812bfad7e3aedbb0296a
+      size: 12749
+    params:
+      params.yaml:
+        benchmark:
+          target_url: http://localhost:8000/predict
+          target_rps: 100
+          concurrency: 20
+          warmup_runs: 200
+          measured_runs: 2000
+          timeout_ms: 500
+          budgets:
+            p95_latency_ms: 150.0
+            max_error_rate: 0.01
+          output:
+            json_path: reports/latency/latency_results.json
+            csv_path: reports/latency/latency_results.csv
+    outs:
+    - path: reports/latency/latency_results.csv
+      hash: md5
+      md5: 0f958313b03239764bd4ad80013f14dd
+      size: 595
+    - path: reports/latency/latency_results.json
+      hash: md5
+      md5: 6326d8051e2d099731fbba989f3f33d8
+      size: 763
