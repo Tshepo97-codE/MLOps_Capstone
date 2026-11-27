@@ -1,0 +1,60 @@
+# --- Version control ---
+.git
+.gitignore
+.gitattributes
+
+# --- Secrets / local environment (never bake into image layers) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Python artifacts ---
+**/__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+build
+dist
+.venv
+venv
+env
+
+# --- Test, lint and type-check caches ---
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# --- ML data and artifacts (models are bind-mounted read-only at runtime) ---
+data
+models
+reports
+mlruns
+mlartifacts
+.dvc
+.dvcignore
+dvc.yaml
+dvc.lock
+params.yaml
+.dvc-local-storage
+
+# --- Not needed at runtime ---
+tests
+notebooks
+scripts
+Makefile
+README.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# --- Editor / OS noise ---
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.log
+logs

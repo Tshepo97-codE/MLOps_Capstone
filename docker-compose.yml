@@ -1,0 +1,44 @@
+services:
+  payshap-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: payshap-fraud-api:latest
+    container_name: payshap-api
+    # Loaded only if present (requires Docker Compose v2.24+); explicit
+    # defaults below apply either way.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MODEL_PATH: ${MODEL_PATH:-models/model.pkl}
+      # app/main.py reads LOCAL_MODEL_PATH / LOCAL_FEATURE_NAMES_PATH.
+      LOCAL_MODEL_PATH: ${MODEL_PATH:-models/model.pkl}
+      LOCAL_FEATURE_NAMES_PATH: ${FEATURE_NAMES_PATH:-models/feature_names.json}
+      MODEL_STAGE: ${MODEL_STAGE:-Staging}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-}
+      DECISION_THRESHOLD: ${DECISION_THRESHOLD:-0.5}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
+      UVICORN_LOG_LEVEL: ${UVICORN_LOG_LEVEL:-info}
+      # One BLAS/OpenMP thread per worker: avoids thread oversubscription
+      # across Uvicorn worker processes.
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-1}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-1}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./reports:/app/reports
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
